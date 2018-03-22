@@ -20,6 +20,8 @@ pkgTest <- function(x)
 }
 pkgTest("devtools")
 pkgTest("tidyverse")
+pkgTest("caret")
+pkgTest("RMeCab")
 
 # devtools::install_github("mkearney/rtweet")
 library(rtweet)
@@ -34,7 +36,7 @@ source("const.R")
 
 
 ## path of home directory
-home_directory <- path.expand("~/")
+home_directory <- path.expand("~")
 
 ## combine with name for token
 file_name <- file.path(home_directory, "twitter_token.rds")
@@ -76,6 +78,9 @@ list_tweet <- lists_statuses2(list_id = NULL, slug = listName, owner_user = user
 user_tweets <- user_tweet[order(user_tweet$created_at, decreasing=T), ]
 list_tweets <- list_tweet[order(list_tweet$created_at, decreasing=T), ]
 
+nrow(user_tweets)
+nrow(list_tweets)
+
 # 新しい方
 # 厳密にはリストに追加されているユーザー同士でも比較する必要があるが割愛
 if(user_tweets[nrow(user_tweets),"created_at"] > list_tweets[nrow(list_tweets),"created_at"]){
@@ -95,11 +100,20 @@ write_as_csv(user_tweetss, "user_tweetss.csv", prepend_ids = TRUE, na = "",
 write_as_csv(list_tweetss, "list_tweetss.csv", prepend_ids = TRUE, na = "",
              fileEncoding = "UTF-8")
 
-user_tweetss <- read.csv("user_tweetss.csv", encoding = "UTF-8")
-list_tweetss <- read.csv("list_tweetss.csv", encoding = "UTF-8")
+saveRDS(user_tweetss, file = "user_tweetss.rds")
+saveRDS(list_tweetss, file = "list_tweetss.rds")
+
+# user_tweetss <- read.csv("user_tweetss.csv", encoding = "UTF-8", stringsAsFactors=F)
+# list_tweetss <- read.csv("list_tweetss.csv", encoding = "UTF-8", stringsAsFactors=F)
+# user_tweetss <- readRDS("user_tweetss.rds")
+# list_tweetss <- readRDS("list_tweetss.rds")
+nrow(user_tweetss)
+nrow(list_tweetss)
 
 user_df <- user_tweetss$text
 list_df <- list_tweetss$text
+length(user_df)
+length(list_df)
 
 
 
@@ -117,6 +131,8 @@ preprocessing <- function(text) {
   result <- gsub("[[:space:]][[:space:]]+"," ",result)
   result <- gsub("https?://[^ $]+","",result)
   result <- gsub("\\s+[[:punct:]]+\\s+"," ",result)
+  result <- gsub("^ ","",result)
+  result <- gsub(" $","",result)
   
   result <- trimws(result)
   
@@ -124,6 +140,13 @@ preprocessing <- function(text) {
 }
 user_df_p <- preprocessing(user_df)
 list_df_p <- preprocessing(list_df)
+length(user_df_p)
+length(list_df_p)
+
+saveRDS(user_df_p, file = "user_df_p.rds")
+saveRDS(list_df_p, file = "list_df_p.rds")
+# user_df_p <- readRDS("user_df_p.rds")
+# list_df_p <- readRDS("list_df_p.rds")
 
 
 
@@ -132,60 +155,158 @@ list_df_p <- preprocessing(list_df)
 runMecab <- function(df){
   #text <- df$text
   text <- df
+  lent <- length(text)
   # MeCabに投げて解析
-  texts <- NA
-  for (i in 1:length(text)){
+  texts <- rep("", lent)
+  for (i in 1:lent){
     tryCatch({
-      if(length(text[i])>0){
+      if(nchar(text[i])>0){
         # cat(i, " ")
         ulist <- unlist(RMeCabC(as.character(text[i]), 1)) # ",1"で表層形ではなく基本形で出力
         # 特定の品詞のみ抽出
         items <- ulist[names(ulist) %in% c("名詞")] # , "形容詞", "動詞")]
-        items <- items[items!= "0"& items!= "1"& items!= "2"& items!= "3"& items!= "4"&
+        items <- items[items!= "%"& items!= "0"& items!= "1"& items!= "2"& items!= "3"& items!= "4"&
                          items!= "5"& items!= "6"& items!= "7"& items!= "8"& items!= "9"&
-                         items!= "０"& items!= "１"& items!= "２"& items!= "３"& items!= "４"&
+                         items!= "％"& items!= "０"& items!= "１"& items!= "２"& items!= "３"& items!= "４"&
                          items!= "５"& items!= "６"& items!= "７"& items!= "８"& items!= "９"]
-        texts <- append(texts, paste(items, collapse = " "))
+        texts[i] <- paste(items, collapse = " ")
+      }else{
+        texts[i] <- ""
       }
     }, 
     error = function(e) {
-      texts <- append(texts,"")
-    },
-    warning = function(e) {
-      texts <- append(texts,"")
+      texts[i] <- ""
     },
     finally = {},
     silent = TRUE
     )
   }
-  texts <- texts[-1]
   return(texts)
 }
 user_df_m <- runMecab(user_df_p)
 list_df_m <- runMecab(list_df_p)
+length(user_df_m)
+length(list_df_m)
 
-user_df_m1 <- user_df_m[user_df_m!=""]
-list_df_m1 <- list_df_m[list_df_m!=""]
+saveRDS(user_df_m, file = "user_df_m.rds")
+saveRDS(list_df_m, file = "list_df_m.rds")
+# user_df_m <- readRDS("user_df_m.rds")
+# list_df_m <- readRDS("list_df_m.rds")
 
 # user_df_m[user_df_m %in% list_df_m]
 
-answerDf <- user_tweetss
+df.mecab <- list_tweetss
 
-i <- 0
-answerDf$point <- rep(0, nrow(answerDf))
-for (text1 in user_df_m1) {
-  cat(".")
-  for (text2 in list_df_m1) {
-    cat("_")
-    point <- adist(text1, text2)/length(text1)
-    if(point < 0.5){
-      answerDf[i,"point"] <- 1
-      break
+i <- 1
+rowc <- nrow(df.mecab)
+df.mecab$mecabed <- rep("", rowc)
+df.mecab$point <- rep(1, rowc)
+for (i in 1:rowc) {
+  point <- 1
+  tryCatch({
+    text1 <- list_df_m[i]
+    df.mecab[i,"mecabed"] <- text1
+    if(!is.null(text1) && nchar(text1)>0){
+      for (text2 in user_df_m) {
+        tryCatch({
+          if(!is.null(text2) && nchar(text2)>0){
+            point <- as.numeric(adist(text1, text2)/max(nchar(text1), nchar(text2)))
+            if(point<df.mecab[i,"point"]){
+              df.mecab[i,"point"] <- point
+            }
+          }
+        }, 
+        error = function(e) {},
+        warning = function(e) {},
+        finally = {},
+        silent = TRUE
+        )
+      }
     }
-  }
+  }, 
+  error = function(e) {},
+  warning = function(e) {},
+  finally = {},
+  silent = TRUE
+  )
+  
+  cat(sprintf(paste("%",as.character(nchar(rowc)+1),"d",sep=""), i), ":\t", sprintf("%03.3f", round((100*i)/rowc, 1)), "%\t", sprintf("%01.3f", point), "\n")
   i <- i + 1
   
-  #if(i>100)break
+  # if(i>1000)break
 }
 
-# ...
+write.csv(df.mecab, "df.mecab.csv", quote=TRUE, row.names=FALSE, fileEncoding = "UTF-8")
+write.csv(df.mecab[,c("point", "mecabed")], "df.mecab_lite.csv", quote=TRUE, row.names=FALSE, fileEncoding = "UTF-8")
+saveRDS(df.mecab, file = "df.mecab.rds")
+# df.mecab <- readRDS("df.mecab.rds")
+
+nrow(df.mecab)
+
+pos <- 1:100
+df.mecab <- df.mecab_[pos,]
+
+df.mecab.text <- df.mecab[,"mecabed"]
+df.mecab.dm <- as.data.frame(t(docMatrixDF(df.mecab.text, weight = "tf*idf*norm")))
+df.mecab.dm$point <- df.mecab[,"point"]
+rownames(df.mecab.dm) = paste(list_tweetss[pos, "text"], list_tweetss[pos, "created_at"], sep=" ")
+
+train <- df.mecab.dm
+
+train_sample = sample(nrow(train), nrow(train)*0.5)
+train_tmp_data_frame = train[train_sample, ]
+test_tmp_data_frame = train[-train_sample, ]
+
+test_tmp_data_frame$point = as.factor(ifelse(test_tmp_data_frame$point<=0.5,1,0))
+train_tmp_data_frame$point = as.factor(ifelse(train_tmp_data_frame$point<=0.5,1,0))
+
+# ----------
+
+library(stats)
+
+a <- df.mecab.dm
+
+# 主成分分析を実行
+a.pc <- prcomp(a)
+summary(a.pc) #princomp()は(行数)<(列数)で実行不可だが、prcomp()では可能
+a.pc$rotation #固有ベクトル表示
+
+# 結果のプロット
+png("test.png", width = 2000, height = 2000)
+plot(a.pc$x[,1], a.pc$x[,2], type="n")
+text(a.pc$x[,1], a.pc$x[,2], list_tweetss[pos,"text"], col=ifelse(df.mecab.dm$point<=0.5,2,1))
+dev.off()
+
+# ----------
+
+library(randomForest)
+tmp_colnames <- colnames(test_tmp_data_frame)
+colnames(test_tmp_data_frame) <- c(paste("X", 1:(ncol(test_tmp_data_frame)-1), sep=""), "point")
+# colnames(test_tmp_data_frame) <- c(paste("X", colnames(test_tmp_data_frame)[1:(ncol(test_tmp_data_frame)-1)], sep=""), "point")
+colnames(train_tmp_data_frame) <- c(paste("X", 1:(ncol(train_tmp_data_frame)-1), sep=""), "point")
+# colnames(train_tmp_data_frame) <- c(paste("X", colnames(train_tmp_data_frame)[1:(ncol(train_tmp_data_frame)-1)], sep=""), "point")
+rf_model = randomForest(point ~ . , data = train_tmp_data_frame, ntree = 100, proximity = TRUE)
+
+rf_tune = tuneRF(train_tmp_data_frame[,1:(ncol(train_tmp_data_frame)-1)],train_tmp_data_frame[,ncol(train_tmp_data_frame)],doBest=T)
+m <- rf_tune$mtry
+(rf_model = randomForest(point ~ . , data = train_tmp_data_frame, ntree = 100, proximity = TRUE, mtry = m ))
+
+png("test3.png", width = 2000, height = 2000)
+varImpPlot(rf_model)
+dev.off()
+
+names(rf_model)
+rf_model.imp <- importance(rf_model)
+rownames(rf_model.imp) <- tmp_colnames[1:(length(tmp_colnames)-1)]
+
+rf_model$predicted
+
+rf_model_predict = predict(rf_model, test_tmp_data_frame, type="class")
+
+table(rf_model_predict, test_tmp_data_frame$point)
+
+# 評価
+n <- length(rf_model_predict)
+er <- as.numeric(as.character(rf_model_predict)) - as.numeric(as.character(test_tmp_data_frame$point))
+rss <- sum(er*er) / n
+rms <- sqrt(rss)
